@@ -1,0 +1,13 @@
+[package]
+name = "liboo"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.99"
+blake3 = "1.8.2"
+futures-util = "0.3.31"
+iroh = "0.91.2"
+iroh-gossip = "0.91.0"
+rand = "0.8"
+tokio = "1.47.1"
