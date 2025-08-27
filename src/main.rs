@@ -24,29 +24,24 @@ use crate::chat_ticket::ChatTicket;
 use crate::config::{add_friends, generate_secret_key, load_friends_without_me};
 
 /// Chat over iroh-gossip
-///
-/// This broadcasts unsigned messages over iroh-gossip.
-///
-/// By default a new node id is created when starting the example.
-///
-/// By default, we use the default n0 discovery services to dial by `NodeId`.
 #[derive(Parser, Debug)]
 struct Args {
-    name: String,
-
     #[clap(subcommand)]
     command: Command,
 }
 
 #[derive(Parser, Debug)]
 enum Command {
+    /// Add friend nodes.
     Add {
         #[arg(required = true)]
         friends: Vec<String>,
     },
-    /// Open a chat room for a topic and print a ticket for others to join.
+    /// Join in a chat room for a topic.
     Join {
-        /// The ticket, as base32 string.
+        /// Your seed.
+        seed: String,
+        /// The topic name.
         topic: String,
     },
 }
@@ -55,29 +50,28 @@ enum Command {
 async fn main() -> Result<()> {
     let args = Args::parse();
 
-    let (topic_id, topic) = match &args.command {
+    let (seed, topic_id, topic) = match args.command {
         Command::Add { friends } => {
-            add_friends(friends)?;
+            add_friends(&friends)?;
             return Ok(());
         }
-        Command::Join { topic } => {
+        Command::Join { seed, topic } => {
             let hash = blake3::hash(topic.as_bytes());
             let topic_id = TopicId::from_bytes(*hash.as_bytes());
-            (topic_id, topic)
+            (seed, topic_id, topic)
         }
     };
 
-    let secret_key = generate_secret_key(&args.name)?;
+    let secret_key = generate_secret_key(&seed)?;
     let public_key = secret_key.public();
 
-    let mut friends = load_friends_without_me(public_key)?;
+    let friends = load_friends_without_me(public_key)?;
 
     let endpoint = Endpoint::builder()
         .secret_key(secret_key)
         .discovery_n0()
         .bind()
         .await?;
-    // writeln!(w, "| :   {}", endpoint.secret_key().public())?;
 
     let gossip = Gossip::builder().spawn(endpoint.clone());
 
@@ -86,6 +80,7 @@ async fn main() -> Result<()> {
         .spawn();
 
     let (mut rl, mut stdout) = Readline::new("> ".to_string())?;
+
     rl.should_print_line_on(false, false);
     rl.clear()?;
 
@@ -97,7 +92,7 @@ async fn main() -> Result<()> {
     tokio::spawn(subscribe_loop(receiver, stdout.clone()));
 
     let key = endpoint.secret_key().secret();
-    let mut name = args.name;
+    let mut name = String::new();
 
     while let Ok(line_event) = rl.readline().await {
         let ReadlineEvent::Line(line) = line_event else {
@@ -125,15 +120,20 @@ async fn main() -> Result<()> {
 
                     writeln!(stdout, "{}", message_event.bold())?;
 
+                    rl.add_history_entry(rest.to_string());
+
                     ChatEvent::builder().new_message(&name, rest).sign(key)
                 }
                 "/name" => {
+                    // writeln!(stdout, "{name} -> {rest}")?;
+
                     name = rest.to_string();
+
                     continue;
                 }
-                //ChatEvent::builder().set_name(rest).sign(key),
                 "/join" => ChatEvent::builder().node_joined().sign(key),
                 "/leave" => ChatEvent::builder().node_left().sign(key),
+                "/exit" => break,
                 _ => {
                     writeln!(stdout, "unknown action {action}")?;
 
@@ -152,6 +152,8 @@ async fn main() -> Result<()> {
             };
 
             writeln!(stdout, "{}", message_event.bold())?;
+
+            rl.add_history_entry(line.to_string());
 
             ChatEvent::builder().new_message(&name, line).sign(key)
         };

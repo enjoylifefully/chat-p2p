@@ -86,13 +86,14 @@ impl fmt::Display for ChatEvent {
             } => {
                 let (r, g, b) = actor_rbg(actor);
                 let name = name.trim();
+                let short = &base58::encode(actor).into_string()[..5];
                 if name.is_empty() {
-                    write!(f, "{} {message}", actor.fmt_short().truecolor(r, g, b),)
+                    write!(f, "{}: {message}", short.truecolor(r, g, b),)
                 } else {
                     write!(
                         f,
-                        "{} {} {message}",
-                        actor.fmt_short().truecolor(r, g, b),
+                        "{} {}: {message}",
+                        short.truecolor(r, g, b),
                         name.truecolor(r, g, b)
                     )
                 }

@@ -3,8 +3,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use anyhow::Result;
-use iroh::{NodeAddr, NodeId, SecretKey};
-use palette::named::FIREBRICK;
+use iroh::{NodeId, SecretKey};
 
 pub fn key_path() -> PathBuf {
     let mut home = dirs::home_dir().expect("HOME não encontrado");
@@ -53,10 +52,11 @@ pub fn generate_secret_key(name: &str) -> Result<SecretKey> {
 
 pub fn load_friends() -> Result<BTreeSet<NodeId>> {
     let path = friends_path();
-
-    let mut set = BTreeSet::new();
+    let mut friends = BTreeSet::new();
 
     if !path.exists() {
+        fs::File::create(&path)?;
+
         return Ok(BTreeSet::new());
     }
 
@@ -69,10 +69,10 @@ pub fn load_friends() -> Result<BTreeSet<NodeId>> {
         let encoded = line.as_bytes();
         let decoded = base58::decode(encoded).into_array_const()?;
 
-        set.insert(NodeId::from_bytes(&decoded)?);
+        friends.insert(NodeId::from_bytes(&decoded)?);
     }
 
-    Ok(set)
+    Ok(friends)
 }
 
 pub fn load_friends_without_me(me: NodeId) -> Result<Vec<NodeId>> {
