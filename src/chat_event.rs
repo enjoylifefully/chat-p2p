@@ -108,7 +108,7 @@ trait SignState {}
 pub struct ReadyToSign;
 
 pub struct Signed {
-    author: VerifyingKey,
+    key: VerifyingKey,
 }
 
 impl SignState for Initial {}
@@ -218,18 +218,21 @@ pub enum SignatureError {
 }
 
 fn sign_chat_event(event: ChatEventBody, key: &SigningKey) -> SignedChatEvent {
-    let mut body = postcard::to_allocvec(&event).unwrap();
+    let mut bytes = postcard::to_allocvec(&event).unwrap();
+    let body_bytes_len = bytes.len();
     let nonce = rand::random::<Nonce>();
 
-    body.extend_from_slice(&nonce);
+    bytes.extend_from_slice(&nonce);
 
-    let signature = key.sign(&body);
+    let sig = key.sign(&bytes);
+
+    bytes.truncate(body_bytes_len);
 
     SignedChatEvent {
-        body_bytes: body,
+        body_bytes: bytes,
         nonce,
         key: key.verifying_key(),
-        sig: signature,
+        sig,
     }
 }
 
