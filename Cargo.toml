@@ -9,6 +9,7 @@ base58 = { version = "0.5.1", package = "bs58" }
 blake3 = "1.8.2"
 clap = { version = "4.5.46", features = ["derive"] }
 clap_derive = "4.5.45"
+dirs = "6.0.0"
 ed25519-dalek = "2.2.0"
 futures-lite = "2.6.1"
 iroh = "0.91.2"

@@ -1,27 +1,27 @@
+#![allow(unused_variables)]
+
 mod chat_event;
 mod chat_ticket;
+mod config;
 
-use std::collections::HashMap;
-use std::fmt::Display;
 use std::io::Write;
-use std::ops::Not;
 use std::str::FromStr;
 
 use anyhow::Result;
 use clap::Parser;
 use futures_lite::StreamExt;
 use iroh::protocol::Router;
-use iroh::{Endpoint, NodeAddr, NodeId, PublicKey, Watcher};
-use iroh_gossip::api::{Event, GossipReceiver, Message};
+use iroh::{Endpoint, NodeAddr, NodeId, Watcher};
+use iroh_gossip::api::{Event, GossipReceiver};
 use iroh_gossip::net::Gossip;
 use iroh_gossip::proto::TopicId;
+use owo_colors::OwoColorize;
 use rustyline_async::{Readline, ReadlineEvent, SharedWriter};
-use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncWriteExt, stdout};
-use {base58, postcard, thiserror};
+use {base58, dirs, postcard, thiserror};
 
 use crate::chat_event::{ChatEvent, ChatEventBuilder, SignedChatEvent, actor_rbg};
 use crate::chat_ticket::ChatTicket;
+use crate::config::{add_friends, generate_secret_key, load_friends_without_me};
 
 /// Chat over iroh-gossip
 ///
@@ -32,18 +32,22 @@ use crate::chat_ticket::ChatTicket;
 /// By default, we use the default n0 discovery services to dial by `NodeId`.
 #[derive(Parser, Debug)]
 struct Args {
+    name: String,
+
     #[clap(subcommand)]
     command: Command,
 }
 
 #[derive(Parser, Debug)]
 enum Command {
+    Add {
+        #[arg(required = true)]
+        friends: Vec<String>,
+    },
     /// Open a chat room for a topic and print a ticket for others to join.
-    Open,
-    /// Join a chat room from a ticket.
     Join {
         /// The ticket, as base32 string.
-        ticket: String,
+        topic: String,
     },
 }
 
@@ -51,21 +55,28 @@ enum Command {
 async fn main() -> Result<()> {
     let args = Args::parse();
 
-    let (topic, nodes) = match &args.command {
-        Command::Open => {
-            let topic = TopicId::from_bytes(rand::random());
-            //writeln!(w, "topic:   {topic}")?;
-            (topic, vec![])
+    let (topic_id, topic) = match &args.command {
+        Command::Add { friends } => {
+            add_friends(friends)?;
+            return Ok(());
         }
-        Command::Join { ticket } => {
-            let ChatTicket { topic, nodes } = ChatTicket::from_str(ticket)?;
-            //writeln!(w, "| topic:  {topic}")?;
-            (topic, nodes)
+        Command::Join { topic } => {
+            let hash = blake3::hash(topic.as_bytes());
+            let topic_id = TopicId::from_bytes(*hash.as_bytes());
+            (topic_id, topic)
         }
     };
 
-    let endpoint = Endpoint::builder().discovery_n0().bind().await?;
+    let secret_key = generate_secret_key(&args.name)?;
+    let public_key = secret_key.public();
 
+    let mut friends = load_friends_without_me(public_key)?;
+
+    let endpoint = Endpoint::builder()
+        .secret_key(secret_key)
+        .discovery_n0()
+        .bind()
+        .await?;
     // writeln!(w, "| :   {}", endpoint.secret_key().public())?;
 
     let gossip = Gossip::builder().spawn(endpoint.clone());
@@ -74,39 +85,30 @@ async fn main() -> Result<()> {
         .accept(iroh_gossip::ALPN, gossip.clone())
         .spawn();
 
-    let ticket = {
-        let me = endpoint.node_addr().get().unwrap();
-        let nodes = vec![me];
-        ChatTicket { topic, nodes }
-    };
-
     let (mut rl, mut stdout) = Readline::new("> ".to_string())?;
-
     rl.should_print_line_on(false, false);
     rl.clear()?;
-    writeln!(stdout, "ticket: {ticket}")?;
 
-    let node_ids = nodes.iter().map(|p| p.node_id).collect();
-    for node in nodes.into_iter() {
-        endpoint.add_node_addr(node)?;
-    }
+    writeln!(stdout, "{}", topic)?;
+    writeln!(stdout, "{}", base58::encode(public_key).into_string())?;
 
-    let (sender, receiver) = gossip.subscribe(topic, node_ids).await?.split();
+    let (sender, receiver) = gossip.subscribe(topic_id, friends).await?.split();
 
     tokio::spawn(subscribe_loop(receiver, stdout.clone()));
 
     let key = endpoint.secret_key().secret();
-    let mut name = String::new();
+    let mut name = args.name;
 
     while let Ok(line_event) = rl.readline().await {
         let ReadlineEvent::Line(line) = line_event else {
             break;
         };
+        let line = line.trim();
 
         let event = if line.starts_with("/") {
             let (action, rest) = match line.split_once(char::is_whitespace) {
                 Some((cmd, rest)) => (cmd, rest.trim()),
-                None => (line.as_str(), ""),
+                None => (line, ""),
             };
 
             match action {
@@ -118,10 +120,10 @@ async fn main() -> Result<()> {
                     let message_event = ChatEvent::NewMessage {
                         actor: endpoint.node_id(),
                         name: name.clone(),
-                        message: line.clone(),
+                        message: line.to_string(),
                     };
 
-                    writeln!(stdout, "you {}", message_event)?;
+                    writeln!(stdout, "{}", message_event.bold())?;
 
                     ChatEvent::builder().new_message(&name, rest).sign(key)
                 }
@@ -139,13 +141,17 @@ async fn main() -> Result<()> {
                 }
             }
         } else {
+            if line.is_empty() {
+                continue;
+            }
+
             let message_event = ChatEvent::NewMessage {
                 actor: endpoint.node_id(),
                 name: name.clone(),
-                message: line.clone(),
+                message: line.to_string(),
             };
 
-            writeln!(stdout, "you {}", message_event)?;
+            writeln!(stdout, "{}", message_event.bold())?;
 
             ChatEvent::builder().new_message(&name, line).sign(key)
         };
