@@ -3,7 +3,7 @@ use std::fmt;
 use ed25519_dalek::ed25519::signature::Signer;
 use ed25519_dalek::{Signature, SignatureError as DalekError, SigningKey, VerifyingKey};
 use iroh::NodeId;
-use owo_colors::{FgDynColorDisplay, OwoColorize, Rgb};
+use owo_colors::OwoColorize;
 use palette::{FromColor as _, Hsl, Srgb};
 use postcard::Error as PostcardError;
 use serde::{Deserialize, Serialize};
@@ -88,13 +88,13 @@ impl fmt::Display for ChatEvent {
                 let name = name.trim();
                 let short = &base58::encode(actor).into_string()[..5];
                 if name.is_empty() {
-                    write!(f, "{}: {message}", short.truecolor(r, g, b),)
+                    write!(f, "{}: {message}", short.truecolor(r, g, b))
                 } else {
                     write!(
                         f,
                         "{} {}: {message}",
                         short.truecolor(r, g, b),
-                        name.truecolor(r, g, b)
+                        name.truecolor(r, g, b),
                     )
                 }
             }

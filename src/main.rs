@@ -40,6 +40,7 @@ enum Command {
     /// Join in a chat room for a topic.
     Join {
         /// Your seed.
+        #[arg(short = 's', default_value = "")]
         seed: String,
         /// The topic name.
         topic: String,
