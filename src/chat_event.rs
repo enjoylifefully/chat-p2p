@@ -1,0 +1,236 @@
+use ed25519_dalek::ed25519::signature::Signer;
+use ed25519_dalek::{Signature, SignatureError as DalekError, SigningKey, VerifyingKey};
+use iroh::NodeId;
+use postcard::Error as PostcardError;
+use serde::{Deserialize, Serialize};
+use thiserror::Error as ThisError;
+
+type Nonce = [u8; 16];
+
+// region:       --- structs
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ChatEvent {
+    NewMessage { author: NodeId, message: String },
+    SetName { author: NodeId, name: String },
+    NodeJoined { author: NodeId },
+    NodeLeft { author: NodeId },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ChatEventBody {
+    NewMessage { message: String },
+    SetName { name: String },
+    NodeJoined,
+    NodeLeft,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignedChatEvent {
+    // version: u32,
+    body_bytes: Vec<u8>,
+    nonce: Nonce,
+    key: VerifyingKey,
+    sig: Signature,
+}
+
+impl ChatEvent {
+    pub fn builder() -> ChatEventBuilder<Initial, Initial> {
+        ChatEventBuilder::new()
+    }
+}
+
+impl SignedChatEvent {
+    pub fn verify_into(self) -> Result<ChatEvent, SignatureError> {
+        let body_bytes_len = self.body_bytes.len();
+        let mut with_nonce = self.body_bytes;
+
+        with_nonce.extend_from_slice(&self.nonce);
+
+        self.key.verify_strict(&with_nonce, &self.sig)?;
+
+        let body_bytes = &with_nonce[..body_bytes_len];
+        let event_body = postcard::from_bytes(body_bytes)?;
+        let author = NodeId::from(self.key);
+
+        let event = match event_body {
+            ChatEventBody::NewMessage { message } => ChatEvent::NewMessage { author, message },
+            ChatEventBody::SetName { name } => ChatEvent::SetName { author, name },
+            ChatEventBody::NodeJoined => ChatEvent::NodeJoined { author },
+            ChatEventBody::NodeLeft => ChatEvent::NodeLeft { author },
+        };
+
+        Ok(event)
+    }
+
+    pub fn to_vec(&self) -> Vec<u8> {
+        postcard::to_allocvec(self).unwrap()
+    }
+}
+
+// endregion:    --- structs
+
+// Initial state
+pub struct Initial;
+
+// region:       --- EventState
+
+trait EventState {}
+
+pub struct NewMessage {
+    message: String,
+}
+
+pub struct SetName {
+    name: String,
+}
+
+pub struct NodeJoined;
+
+pub struct NodeLeft;
+
+impl EventState for Initial {}
+
+impl EventState for NewMessage {}
+
+impl EventState for SetName {}
+
+impl EventState for NodeJoined {}
+
+impl EventState for NodeLeft {}
+
+// endregion:    --- EventState
+
+// region:       --- SignState
+
+trait SignState {}
+
+pub struct ReadyToSign;
+
+pub struct Signed {
+    author: VerifyingKey,
+}
+
+impl SignState for Initial {}
+
+impl SignState for ReadyToSign {}
+
+impl SignState for Signed {}
+
+// endregion:    --- SignState
+
+// TODO: fazer poder usar o sign antes também
+
+pub struct ChatEventBuilder<E: EventState, S: SignState> {
+    sign: S,
+    event: E,
+}
+
+// region:       --- impl ChatEventBuilder
+
+impl ChatEventBuilder<Initial, Initial> {
+    pub fn new() -> Self {
+        Self {
+            sign: Initial,
+            event: Initial,
+        }
+    }
+
+    pub fn new_message(
+        self,
+        message: impl Into<String>,
+    ) -> ChatEventBuilder<NewMessage, ReadyToSign> {
+        ChatEventBuilder {
+            sign: ReadyToSign,
+            event: NewMessage {
+                message: message.into(),
+            },
+        }
+    }
+
+    pub fn set_name(self, name: impl Into<String>) -> ChatEventBuilder<SetName, ReadyToSign> {
+        ChatEventBuilder {
+            sign: ReadyToSign,
+            event: SetName { name: name.into() },
+        }
+    }
+
+    pub fn node_joined(self) -> ChatEventBuilder<NodeJoined, ReadyToSign> {
+        ChatEventBuilder {
+            sign: ReadyToSign,
+            event: NodeJoined,
+        }
+    }
+
+    pub fn node_left(self) -> ChatEventBuilder<NodeLeft, ReadyToSign> {
+        ChatEventBuilder {
+            sign: ReadyToSign,
+            event: NodeLeft,
+        }
+    }
+}
+
+impl ChatEventBuilder<NewMessage, ReadyToSign> {
+    pub fn sign(self, key: &SigningKey) -> SignedChatEvent {
+        let body = ChatEventBody::NewMessage {
+            message: self.event.message,
+        };
+
+        sign_chat_event(body, key)
+    }
+}
+
+impl ChatEventBuilder<SetName, ReadyToSign> {
+    pub fn sign(self, key: &SigningKey) -> SignedChatEvent {
+        let body = ChatEventBody::SetName {
+            name: self.event.name,
+        };
+
+        sign_chat_event(body, key)
+    }
+}
+
+impl ChatEventBuilder<NodeJoined, ReadyToSign> {
+    pub fn sign(self, key: &SigningKey) -> SignedChatEvent {
+        let body = ChatEventBody::NodeJoined;
+
+        sign_chat_event(body, key)
+    }
+}
+
+impl ChatEventBuilder<NodeLeft, ReadyToSign> {
+    pub fn sign(self, key: &SigningKey) -> SignedChatEvent {
+        let body = ChatEventBody::NodeLeft;
+
+        sign_chat_event(body, key)
+    }
+}
+
+// endregion:    --- impl ChatEventBuilder
+
+// region:       --- utils
+
+#[derive(Debug, ThisError)]
+#[error("{self:?}")]
+pub enum SignatureError {
+    Dalek(#[from] DalekError),
+    Postcard(#[from] PostcardError),
+}
+
+fn sign_chat_event(event: ChatEventBody, key: &SigningKey) -> SignedChatEvent {
+    let mut body = postcard::to_allocvec(&event).unwrap();
+    let nonce = rand::random::<Nonce>();
+
+    body.extend_from_slice(&nonce);
+
+    let signature = key.sign(&body);
+
+    SignedChatEvent {
+        body_bytes: body,
+        nonce,
+        key: key.verifying_key(),
+        sig: signature,
+    }
+}
+
+// endregion:    --- utils
