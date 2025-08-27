@@ -68,7 +68,7 @@ impl ChatEvent {
     }
 }
 
-fn actor_rbg(actor: &NodeId) -> (u8, u8, u8) {
+pub fn actor_rbg(actor: &NodeId) -> (u8, u8, u8) {
     let bytes = actor.as_bytes();
     let hue = (u16::from_be_bytes([bytes[0], bytes[1]]) % 360) as f32;
     let hsl = Hsl::new(hue, 0.65, 0.55);

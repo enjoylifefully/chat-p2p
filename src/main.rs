@@ -2,6 +2,7 @@ mod chat_event;
 mod chat_ticket;
 
 use std::collections::HashMap;
+use std::fmt::Display;
 use std::io::Write;
 use std::ops::Not;
 use std::str::FromStr;
@@ -19,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncWriteExt, stdout};
 use {base58, postcard, thiserror};
 
-use crate::chat_event::{ChatEvent, ChatEventBuilder, SignedChatEvent};
+use crate::chat_event::{ChatEvent, ChatEventBuilder, SignedChatEvent, actor_rbg};
 use crate::chat_ticket::ChatTicket;
 
 /// Chat over iroh-gossip
@@ -31,12 +32,6 @@ use crate::chat_ticket::ChatTicket;
 /// By default, we use the default n0 discovery services to dial by `NodeId`.
 #[derive(Parser, Debug)]
 struct Args {
-    /// Set your nickname.
-    #[clap(short, long)]
-    name: Option<String>,
-    /// Set the bind port for our socket. By default, a random port will be used.
-    #[clap(short, long, default_value = "0")]
-    bind_port: u16,
     #[clap(subcommand)]
     command: Command,
 }
@@ -119,7 +114,14 @@ async fn main() -> Result<()> {
                     if rest.is_empty() {
                         continue;
                     }
-                    writeln!(stdout, "\x1b[34myou\x1b[0m: {rest}")?;
+
+                    let message_event = ChatEvent::NewMessage {
+                        actor: endpoint.node_id(),
+                        name: name.clone(),
+                        message: line.clone(),
+                    };
+
+                    writeln!(stdout, "you {}", message_event)?;
 
                     ChatEvent::builder().new_message(&name, rest).sign(key)
                 }
@@ -137,7 +139,13 @@ async fn main() -> Result<()> {
                 }
             }
         } else {
-            writeln!(stdout, "\x1b[34myou\x1b[0m: {line}")?;
+            let message_event = ChatEvent::NewMessage {
+                actor: endpoint.node_id(),
+                name: name.clone(),
+                message: line.clone(),
+            };
+
+            writeln!(stdout, "you {}", message_event)?;
 
             ChatEvent::builder().new_message(&name, line).sign(key)
         };
