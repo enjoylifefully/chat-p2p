@@ -13,7 +13,7 @@ pub struct ChatTicket {
 }
 
 impl Ticket for ChatTicket {
-    const KIND: &'static str = "msg/0";
+    const KIND: &'static str = "msg.0/";
 
     fn to_bytes(&self) -> Vec<u8> {
         postcard::to_allocvec(self).unwrap()

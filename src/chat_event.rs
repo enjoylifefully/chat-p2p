@@ -1,6 +1,10 @@
+use std::fmt;
+
 use ed25519_dalek::ed25519::signature::Signer;
 use ed25519_dalek::{Signature, SignatureError as DalekError, SigningKey, VerifyingKey};
 use iroh::NodeId;
+use owo_colors::{FgDynColorDisplay, OwoColorize, Rgb};
+use palette::{FromColor as _, Hsl, Srgb};
 use postcard::Error as PostcardError;
 use serde::{Deserialize, Serialize};
 use thiserror::Error as ThisError;
@@ -11,15 +15,26 @@ type Nonce = [u8; 16];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ChatEvent {
-    NewMessage { author: NodeId, message: String },
-    SetName { author: NodeId, name: String },
-    NodeJoined { author: NodeId },
-    NodeLeft { author: NodeId },
+    NewMessage {
+        actor: NodeId,
+        name: String,
+        message: String,
+    },
+    SetName {
+        actor: NodeId,
+        name: String,
+    },
+    NodeJoined {
+        actor: NodeId,
+    },
+    NodeLeft {
+        actor: NodeId,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ChatEventBody {
-    NewMessage { message: String },
+    NewMessage { name: String, message: String },
     SetName { name: String },
     NodeJoined,
     NodeLeft,
@@ -34,11 +49,64 @@ pub struct SignedChatEvent {
     sig: Signature,
 }
 
+// endregion:    --- structs
+
+// region:       --- ChatEvent impl
+
 impl ChatEvent {
     pub fn builder() -> ChatEventBuilder<Initial, Initial> {
         ChatEventBuilder::new()
     }
+
+    pub fn actor(&self) -> NodeId {
+        *match self {
+            Self::NewMessage { actor, .. } => actor,
+            Self::SetName { actor, .. } => actor,
+            Self::NodeLeft { actor, .. } => actor,
+            Self::NodeJoined { actor, .. } => actor,
+        }
+    }
 }
+
+fn actor_rbg(actor: &NodeId) -> (u8, u8, u8) {
+    let bytes = actor.as_bytes();
+    let hue = (u16::from_be_bytes([bytes[0], bytes[1]]) % 360) as f32;
+    let hsl = Hsl::new(hue, 0.65, 0.55);
+
+    Srgb::from_color(hsl).into_format().into_components()
+}
+
+impl fmt::Display for ChatEvent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NewMessage {
+                actor,
+                name,
+                message,
+            } => {
+                let (r, g, b) = actor_rbg(actor);
+                let name = name.trim();
+                if name.is_empty() {
+                    write!(f, "{} {message}", actor.fmt_short().truecolor(r, g, b),)
+                } else {
+                    write!(
+                        f,
+                        "{} {} {message}",
+                        actor.fmt_short().truecolor(r, g, b),
+                        name.truecolor(r, g, b)
+                    )
+                }
+            }
+            Self::SetName { actor, name } => write!(f, ""),
+            Self::NodeLeft { actor, .. } => write!(f, ""),
+            Self::NodeJoined { actor, .. } => write!(f, ""),
+        }
+    }
+}
+
+// endregion:    --- ChatEvent impl
+
+// region:       --- SignedChatEvent impl
 
 impl SignedChatEvent {
     pub fn verify_into(self) -> Result<ChatEvent, SignatureError> {
@@ -51,13 +119,17 @@ impl SignedChatEvent {
 
         let body_bytes = &with_nonce[..body_bytes_len];
         let event_body = postcard::from_bytes(body_bytes)?;
-        let author = NodeId::from(self.key);
+        let actor = NodeId::from(self.key);
 
         let event = match event_body {
-            ChatEventBody::NewMessage { message } => ChatEvent::NewMessage { author, message },
-            ChatEventBody::SetName { name } => ChatEvent::SetName { author, name },
-            ChatEventBody::NodeJoined => ChatEvent::NodeJoined { author },
-            ChatEventBody::NodeLeft => ChatEvent::NodeLeft { author },
+            ChatEventBody::NewMessage { name, message } => ChatEvent::NewMessage {
+                actor,
+                name,
+                message,
+            },
+            ChatEventBody::SetName { name } => ChatEvent::SetName { actor, name },
+            ChatEventBody::NodeJoined => ChatEvent::NodeJoined { actor },
+            ChatEventBody::NodeLeft => ChatEvent::NodeLeft { actor },
         };
 
         Ok(event)
@@ -68,7 +140,7 @@ impl SignedChatEvent {
     }
 }
 
-// endregion:    --- structs
+// endregion:    --- SignedChatEvent impl
 
 // Initial state
 pub struct Initial;
@@ -78,6 +150,7 @@ pub struct Initial;
 trait EventState {}
 
 pub struct NewMessage {
+    name: String,
     message: String,
 }
 
@@ -138,11 +211,13 @@ impl ChatEventBuilder<Initial, Initial> {
 
     pub fn new_message(
         self,
+        name: impl Into<String>,
         message: impl Into<String>,
     ) -> ChatEventBuilder<NewMessage, ReadyToSign> {
         ChatEventBuilder {
             sign: ReadyToSign,
             event: NewMessage {
+                name: name.into(),
                 message: message.into(),
             },
         }
@@ -173,6 +248,7 @@ impl ChatEventBuilder<Initial, Initial> {
 impl ChatEventBuilder<NewMessage, ReadyToSign> {
     pub fn sign(self, key: &SigningKey) -> SignedChatEvent {
         let body = ChatEventBody::NewMessage {
+            name: self.event.name,
             message: self.event.message,
         };
 

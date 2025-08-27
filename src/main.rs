@@ -85,9 +85,11 @@ async fn main() -> Result<()> {
         ChatTicket { topic, nodes }
     };
 
-    let (mut rl, mut w) = Readline::new("> ".to_string())?;
+    let (mut rl, mut stdout) = Readline::new("> ".to_string())?;
 
-    writeln!(w, "ticket: {ticket}")?;
+    rl.should_print_line_on(false, false);
+    rl.clear()?;
+    writeln!(stdout, "ticket: {ticket}")?;
 
     let node_ids = nodes.iter().map(|p| p.node_id).collect();
     for node in nodes.into_iter() {
@@ -96,14 +98,10 @@ async fn main() -> Result<()> {
 
     let (sender, receiver) = gossip.subscribe(topic, node_ids).await?.split();
 
-    writeln!(w, "connected")?;
-
-    rl.should_print_line_on(false, false);
-    rl.clear()?;
-
-    tokio::spawn(subscribe_loop(receiver, w.clone()));
+    tokio::spawn(subscribe_loop(receiver, stdout.clone()));
 
     let key = endpoint.secret_key().secret();
+    let mut name = String::new();
 
     while let Ok(line_event) = rl.readline().await {
         let ReadlineEvent::Line(line) = line_event else {
@@ -112,26 +110,36 @@ async fn main() -> Result<()> {
 
         let event = if line.starts_with("/") {
             let (action, rest) = match line.split_once(char::is_whitespace) {
-                Some((cmd, rest)) => (cmd, rest.trim_start()),
+                Some((cmd, rest)) => (cmd, rest.trim()),
                 None => (line.as_str(), ""),
             };
 
             match action {
                 "/send" => {
-                    writeln!(w, "\x1b[34myou\x1b[0m: {rest}")?;
-                    ChatEvent::builder().new_message(rest).sign(key)
+                    if rest.is_empty() {
+                        continue;
+                    }
+                    writeln!(stdout, "\x1b[34myou\x1b[0m: {rest}")?;
+
+                    ChatEvent::builder().new_message(&name, rest).sign(key)
                 }
-                "/name" => ChatEvent::builder().set_name(rest).sign(key),
+                "/name" => {
+                    name = rest.to_string();
+                    continue;
+                }
+                //ChatEvent::builder().set_name(rest).sign(key),
                 "/join" => ChatEvent::builder().node_joined().sign(key),
                 "/leave" => ChatEvent::builder().node_left().sign(key),
                 _ => {
-                    writeln!(w, "unknown action {action}")?;
+                    writeln!(stdout, "unknown action {action}")?;
+
                     continue;
                 }
             }
         } else {
-            writeln!(w, "\x1b[34myou\x1b[0m: {line}")?;
-            ChatEvent::builder().new_message(line).sign(key)
+            writeln!(stdout, "\x1b[34myou\x1b[0m: {line}")?;
+
+            ChatEvent::builder().new_message(&name, line).sign(key)
         };
 
         sender.broadcast(event.to_vec().into()).await?;
@@ -143,7 +151,6 @@ async fn main() -> Result<()> {
 }
 
 async fn subscribe_loop(mut receiver: GossipReceiver, mut stdout: SharedWriter) -> Result<()> {
-    let mut names = HashMap::new();
     while let Some(gossip_event) = receiver.try_next().await? {
         if let Event::Received(gossip_message) = gossip_event {
             let unverified_event =
@@ -151,44 +158,32 @@ async fn subscribe_loop(mut receiver: GossipReceiver, mut stdout: SharedWriter) 
             let Ok(event) = unverified_event.verify_into() else {
                 continue;
             };
-            match event {
-                ChatEvent::NewMessage { author, message } => {
-                    let name = names.get(&author).map_or_else(
-                        || author.fmt_short(),
-                        |name| format!("{} \"{name}\"", author.fmt_short()),
-                    );
-
-                    writeln!(stdout, "\x1b[31m{}\x1b[0m: {}", name, message)?;
+            match &event {
+                ChatEvent::NewMessage {
+                    actor,
+                    name,
+                    message,
+                } => {
+                    writeln!(stdout, "{event}")?;
                 }
-                ChatEvent::SetName { author, name } => {
-                    let prev_name = names.get(&author).map_or_else(
-                        || author.fmt_short(),
-                        |name| format!("{} \"{name}\"", author.fmt_short()),
-                    );
+                ChatEvent::SetName { actor, name } => {
+                    todo!();
+                    // let prev_name = names.get(&actor).map_or_else(
+                    //     || actor.fmt_short(),
+                    //     |name| format!("{} \"{name}\"", actor.fmt_short()),
+                    // );
 
-                    names.insert(author, name.clone());
-
-                    writeln!(
-                        stdout,
-                        "{prev_name} is now known as {} \"{name}\"",
-                        author.fmt_short()
-                    )?;
+                    // writeln!(
+                    //     stdout,
+                    //     "{prev_name} is now known as {} \"{name}\"",
+                    //     actor.fmt_short()
+                    // )?;
                 }
-                ChatEvent::NodeJoined { author } => {
-                    let name = names.get(&author).map_or_else(
-                        || author.fmt_short(),
-                        |name| format!("{} \"{name}\"", author.fmt_short()),
-                    );
-
-                    writeln!(stdout, "{} joined", name)?;
+                ChatEvent::NodeJoined { actor } => {
+                    writeln!(stdout, "{event}")?;
                 }
-                ChatEvent::NodeLeft { author } => {
-                    let name = names.get(&author).map_or_else(
-                        || author.fmt_short(),
-                        |name| format!("{} \"{name}\"", author.fmt_short()),
-                    );
-
-                    writeln!(stdout, "{} left", name)?;
+                ChatEvent::NodeLeft { actor } => {
+                    writeln!(stdout, "{event}")?;
                 }
             }
         }
