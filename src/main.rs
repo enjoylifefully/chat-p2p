@@ -1,69 +1,56 @@
 #![allow(unused_variables)]
 
+// mod chat_ticket;
 mod chat_event;
-mod chat_ticket;
 mod config;
 
 use std::io::Write;
-use std::str::FromStr;
 
 use anyhow::Result;
 use clap::Parser;
+use clap::builder::Styles;
 use futures_lite::StreamExt;
+use iroh::Endpoint;
 use iroh::protocol::Router;
-use iroh::{Endpoint, NodeAddr, NodeId, Watcher};
 use iroh_gossip::api::{Event, GossipReceiver};
 use iroh_gossip::net::Gossip;
 use iroh_gossip::proto::TopicId;
 use owo_colors::OwoColorize;
 use rustyline_async::{Readline, ReadlineEvent, SharedWriter};
-use {base58, dirs, postcard, thiserror};
+use {base58, postcard};
 
-use crate::chat_event::{ChatEvent, ChatEventBuilder, SignedChatEvent, actor_rbg};
-use crate::chat_ticket::ChatTicket;
+use crate::chat_event::{ChatEvent, SignedChatEvent};
 use crate::config::{add_friends, generate_secret_key, load_friends_without_me};
 
-/// Chat over iroh-gossip
 #[derive(Parser, Debug)]
+#[clap(styles = Styles::plain())]
 struct Args {
-    #[clap(subcommand)]
-    command: Command,
-}
+    /// The topic name.
+    topic: String,
 
-#[derive(Parser, Debug)]
-enum Command {
-    /// Add friend nodes.
-    Add {
-        #[arg(required = true)]
-        friends: Vec<String>,
-    },
-    /// Join in a chat room for a topic.
-    Join {
-        /// Your seed.
-        #[arg(short = 's', default_value = "")]
-        seed: String,
-        /// The topic name.
-        topic: String,
-    },
+    /// Your name.
+    #[clap(short = 'n', long)]
+    name: Option<String>,
+
+    /// Your seed.
+    #[clap(short = 's', long)]
+    seed: Option<String>,
+
+    /// Friends to add.
+    #[clap(short = 'f', long, num_args = 1..)]
+    friends: Vec<String>,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
 
-    let (seed, topic_id, topic) = match args.command {
-        Command::Add { friends } => {
-            add_friends(&friends)?;
-            return Ok(());
-        }
-        Command::Join { seed, topic } => {
-            let hash = blake3::hash(topic.as_bytes());
-            let topic_id = TopicId::from_bytes(*hash.as_bytes());
-            (seed, topic_id, topic)
-        }
-    };
+    add_friends(&args.friends)?;
+    let topic = args.topic;
+    let hash = blake3::hash(topic.as_bytes());
+    let topic_id = TopicId::from_bytes(*hash.as_bytes());
 
-    let secret_key = generate_secret_key(&seed)?;
+    let secret_key = generate_secret_key(args.seed.as_deref().unwrap_or(""))?;
     let public_key = secret_key.public();
 
     let friends = load_friends_without_me(public_key)?;
@@ -93,7 +80,7 @@ async fn main() -> Result<()> {
     tokio::spawn(subscribe_loop(receiver, stdout.clone()));
 
     let key = endpoint.secret_key().secret();
-    let mut name = String::new();
+    let mut name = args.name.unwrap_or_default();
 
     while let Ok(line_event) = rl.readline().await {
         let ReadlineEvent::Line(line) = line_event else {

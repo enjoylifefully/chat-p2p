@@ -40,10 +40,10 @@ pub fn load_salt() -> Result<[u8; 32]> {
     }
 }
 
-pub fn generate_secret_key(name: &str) -> Result<SecretKey> {
+pub fn generate_secret_key(seed: &str) -> Result<SecretKey> {
     let salt = load_salt()?;
     let hash = blake3::Hasher::new()
-        .update(name.as_bytes())
+        .update(seed.as_bytes())
         .update(&salt)
         .finalize();
 

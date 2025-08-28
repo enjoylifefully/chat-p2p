@@ -58,6 +58,7 @@ impl ChatEvent {
         ChatEventBuilder::new()
     }
 
+    #[allow(dead_code)]
     pub fn actor(&self) -> NodeId {
         *match self {
             Self::NewMessage { actor, .. } => actor,
@@ -148,15 +149,11 @@ pub struct Initial;
 
 // region:       --- EventState
 
-trait EventState {}
+pub trait EventState {}
 
 pub struct NewMessage {
     name: String,
     message: String,
-}
-
-pub struct SetName {
-    name: String,
 }
 
 pub struct NodeJoined;
@@ -167,8 +164,6 @@ impl EventState for Initial {}
 
 impl EventState for NewMessage {}
 
-impl EventState for SetName {}
-
 impl EventState for NodeJoined {}
 
 impl EventState for NodeLeft {}
@@ -177,10 +172,11 @@ impl EventState for NodeLeft {}
 
 // region:       --- SignState
 
-trait SignState {}
+pub trait SignState {}
 
 pub struct ReadyToSign;
 
+#[allow(dead_code)]
 pub struct Signed {
     key: VerifyingKey,
 }
@@ -195,6 +191,7 @@ impl SignState for Signed {}
 
 // TODO: fazer poder usar o sign antes também
 
+#[allow(dead_code)]
 pub struct ChatEventBuilder<E: EventState, S: SignState> {
     sign: S,
     event: E,
@@ -224,13 +221,6 @@ impl ChatEventBuilder<Initial, Initial> {
         }
     }
 
-    pub fn set_name(self, name: impl Into<String>) -> ChatEventBuilder<SetName, ReadyToSign> {
-        ChatEventBuilder {
-            sign: ReadyToSign,
-            event: SetName { name: name.into() },
-        }
-    }
-
     pub fn node_joined(self) -> ChatEventBuilder<NodeJoined, ReadyToSign> {
         ChatEventBuilder {
             sign: ReadyToSign,
@@ -251,16 +241,6 @@ impl ChatEventBuilder<NewMessage, ReadyToSign> {
         let body = ChatEventBody::NewMessage {
             name: self.event.name,
             message: self.event.message,
-        };
-
-        sign_chat_event(body, key)
-    }
-}
-
-impl ChatEventBuilder<SetName, ReadyToSign> {
-    pub fn sign(self, key: &SigningKey) -> SignedChatEvent {
-        let body = ChatEventBody::SetName {
-            name: self.event.name,
         };
 
         sign_chat_event(body, key)
