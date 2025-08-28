@@ -7,16 +7,16 @@ use iroh::{NodeId, SecretKey};
 
 pub fn key_path() -> PathBuf {
     let mut home = dirs::home_dir().expect("HOME não encontrado");
-    home.push(".liboo");
-    std::fs::create_dir_all(&home).expect("não deu pra criar ~/.liboo");
+    home.push(".chat-p2p");
+    std::fs::create_dir_all(&home).expect("não deu pra criar ~/.chat-p2p");
     home.push("key");
     home
 }
 
 pub fn friends_path() -> PathBuf {
     let mut home = dirs::home_dir().expect("HOME não encontrado");
-    home.push(".liboo");
-    std::fs::create_dir_all(&home).expect("não deu pra criar ~/.liboo");
+    home.push(".chat-p2p");
+    std::fs::create_dir_all(&home).expect("não deu pra criar ~/.chat-p2p");
     home.push("friends");
     home
 }

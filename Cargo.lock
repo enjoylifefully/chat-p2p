@@ -374,6 +374,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "chat-p2p"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "blake3",
+ "bs58",
+ "clap",
+ "clap_derive",
+ "dirs",
+ "ed25519-dalek",
+ "futures-lite",
+ "iroh",
+ "iroh-base",
+ "iroh-gossip",
+ "owo-colors",
+ "palette",
+ "postcard",
+ "rand 0.8.5",
+ "rustyline-async",
+ "serde",
+ "thiserror 2.0.16",
+ "tokio",
+]
+
+[[package]]
 name = "chrono"
 version = "0.4.41"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1940,31 +1965,6 @@ name = "libc"
 version = "0.2.175"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6a82ae493e598baaea5209805c49bbf2ea7de956d50d7da0da1164f9c6d28543"
-
-[[package]]
-name = "liboo"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "blake3",
- "bs58",
- "clap",
- "clap_derive",
- "dirs",
- "ed25519-dalek",
- "futures-lite",
- "iroh",
- "iroh-base",
- "iroh-gossip",
- "owo-colors",
- "palette",
- "postcard",
- "rand 0.8.5",
- "rustyline-async",
- "serde",
- "thiserror 2.0.16",
- "tokio",
-]
 
 [[package]]
 name = "libredox"

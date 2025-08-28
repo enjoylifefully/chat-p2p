@@ -1,6 +1,5 @@
 #![allow(unused_variables)]
 
-// mod chat_ticket;
 mod chat_event;
 mod config;
 
