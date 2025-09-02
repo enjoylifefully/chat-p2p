@@ -102,7 +102,7 @@ async fn main() -> Result<()> {
                     let message_event = ChatEvent::NewMessage {
                         actor: endpoint.node_id(),
                         name: name.clone(),
-                        message: line.to_string(),
+                        message: rest.to_string(),
                     };
 
                     writeln!(stdout, "{}", message_event.bold())?;
